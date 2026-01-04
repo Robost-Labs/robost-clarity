@@ -1,0 +1,76 @@
+steps:
+  # Pull previous images to enable layer caching (ignore failures on first build)
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        docker pull gcr.io/$PROJECT_ID/robost-api:latest || true
+        docker pull gcr.io/$PROJECT_ID/robost-consumer:latest || true
+    id: 'pull-cache'
+
+  # Build API service
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--cache-from'
+      - 'gcr.io/$PROJECT_ID/robost-api:latest'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/robost-api:latest'
+      - '-f'
+      - 'services/api/Dockerfile.secure'
+      - 'services/api'
+    id: 'build-api'
+    waitFor: ['pull-cache']
+
+  # Build Consumer service
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--cache-from'
+      - 'gcr.io/$PROJECT_ID/robost-consumer:latest'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/robost-consumer:latest'
+      - '-f'
+      - 'services/consumer/Dockerfile.secure'
+      - 'services/consumer'
+    id: 'build-consumer'
+    waitFor: ['pull-cache']
+
+  # Push API image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/robost-api:latest']
+    id: 'push-api'
+    waitFor: ['build-api']
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'robost-api'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/robost-api:latest'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+    id: 'deploy-api'
+    waitFor: ['push-api']
+
+  # Push Consumer image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/robost-consumer:latest']
+    id: 'push-consumer'
+    waitFor: ['build-consumer']
+
+images:
+  - 'gcr.io/$PROJECT_ID/robost-api:latest'
+  - 'gcr.io/$PROJECT_ID/robost-consumer:latest'
+
+substitutions:
+  _REGION: 'me-central1'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

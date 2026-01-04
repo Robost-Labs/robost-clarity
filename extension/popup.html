@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Robost Clarity</title>
+  <link rel="stylesheet" href="styles/popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Robost Clarity</span>
+      </div>
+      <div id="status-indicator" class="status-indicator status-disconnected">
+        <span class="status-dot"></span>
+        <span class="status-text">Disconnected</span>
+      </div>
+    </header>
+
+    <!-- Login Section -->
+    <section id="login-section" class="section">
+      <h2>Sign In</h2>
+      <p class="subtitle">Use your organization email to connect</p>
+      
+      <form id="login-form">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" placeholder="you@company.com" required>
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" placeholder="Enter password" required>
+        </div>
+        <div id="login-error" class="error-message hidden"></div>
+        <button type="submit" id="login-btn" class="btn btn-primary">
+          <span class="btn-text">Sign In</span>
+          <span class="btn-loading hidden">
+            <svg class="spinner" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" fill="none" stroke-dasharray="31.4 31.4"/>
+            </svg>
+          </span>
+        </button>
+      </form>
+    </section>
+
+    <!-- Dashboard Section -->
+    <section id="dashboard-section" class="section hidden">
+      <div class="org-info">
+        <div class="org-badge">
+          <span id="org-name">Organization</span>
+        </div>
+        <span id="user-email" class="user-email">user@company.com</span>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+          </div>
+          <div class="stat-content">
+            <span class="stat-value" id="prompts-detected">0</span>
+            <span class="stat-label">Prompts Detected</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon sent">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="22" y1="2" x2="11" y2="13"/>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </div>
+          <div class="stat-content">
+            <span class="stat-value" id="prompts-sent">0</span>
+            <span class="stat-label">Sent to Cloud</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="protection-status">
+        <div class="protection-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <polyline points="9 12 12 15 16 10"/>
+          </svg>
+        </div>
+        <div class="protection-text">
+          <span class="protection-title">Protected by Robost</span>
+          <span class="protection-subtitle" id="last-activity">Monitoring LLM activity</span>
+        </div>
+      </div>
+
+      <button id="logout-btn" class="btn btn-secondary">Sign Out</button>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span>Robost Clarity v1.0.0</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

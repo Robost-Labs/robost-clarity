@@ -1,0 +1,35 @@
+steps:
+  # Pull previous consumer image to enable layer caching (ignore failures on first build)
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        docker pull gcr.io/$PROJECT_ID/robost-consumer:latest || true
+    id: 'pull-cache'
+
+  # Build Consumer service
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--cache-from'
+      - 'gcr.io/$PROJECT_ID/robost-consumer:latest'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/robost-consumer:latest'
+      - '-f'
+      - 'services/consumer/Dockerfile.secure'
+      - 'services/consumer'
+    id: 'build-consumer'
+    waitFor: ['pull-cache']
+
+  # Push Consumer image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/robost-consumer:latest']
+    id: 'push-consumer'
+    waitFor: ['build-consumer']
+
+images:
+  - 'gcr.io/$PROJECT_ID/robost-consumer:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

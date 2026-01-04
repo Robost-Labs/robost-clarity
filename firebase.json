@@ -1,0 +1,27 @@
+{
+  "hosting": {
+    "public": "empty",
+    "site": "clarity-29160",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/api/**",
+        "run": {
+          "region": "me-central1",
+          "serviceId": "robost-api"
+        }
+      },
+      {
+        "source": "**",
+        "run": {
+          "region": "me-central1",
+          "serviceId": "robost-web"
+        }
+      }
+    ]
+  }
+}

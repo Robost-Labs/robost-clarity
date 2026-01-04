@@ -1,0 +1,57 @@
+steps:
+  # Pull previous image to enable layer caching (ignore failures on first build)
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        docker pull gcr.io/$PROJECT_ID/robost-web:latest || true
+    id: 'pull-cache'
+
+  # Build Web service
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--cache-from'
+      - 'gcr.io/$PROJECT_ID/robost-web:latest'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/robost-web:latest'
+      - '-f'
+      - 'services/web/Dockerfile.secure'
+      - '--build-arg'
+      - 'REACT_APP_API_URL=${_API_URL}'
+      - 'services/web'
+    id: 'build-web'
+    waitFor: ['pull-cache']
+
+  # Push Web image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/robost-web:latest']
+    id: 'push-web'
+    waitFor: ['build-web']
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'robost-web'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/robost-web:latest'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+    id: 'deploy-web'
+    waitFor: ['push-web']
+
+images:
+  - 'gcr.io/$PROJECT_ID/robost-web:latest'
+
+substitutions:
+  _API_URL: ''  # Must be provided at trigger time
+  _REGION: 'me-central1'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
