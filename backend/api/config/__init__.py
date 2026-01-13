@@ -1,3 +1,4 @@
+# Configuration package
 import os
 from typing import Optional
 from pydantic_settings import BaseSettings
@@ -6,9 +7,9 @@ class Settings(BaseSettings):
     # Database Configuration
     postgres_host: str = "postgres"
     postgres_port: int = 5432
-    postgres_db: str = "shadow_ai"
-    postgres_user: str = "shadow_user"
-    postgres_password: str = "shadow_pass"
+    postgres_db: str = "robost_clarity"
+    postgres_user: str = "robost_user"
+    postgres_password: str = "robost_pass"
     
     # API Configuration
     api_host: str = "0.0.0.0"
@@ -22,11 +23,11 @@ class Settings(BaseSettings):
     jwt_expiration_hours: int = 24
     
     # Security
-    cors_origins: list = ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3002", "http://127.0.0.1:3002"]
-    prompt_truncate_length: int = 200  # Truncate prompts for security
-    encryption_key: str = "your-secret-key-here-32-chars-min"  # Must be at least 32 characters
+    cors_origins: list = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    prompt_truncate_length: int = 200
+    encryption_key: str = "your-secret-key-here-32-chars-min"
     
-    # Kafka Configuration (optional fields to prevent validation errors)
+    # Kafka Configuration
     kafka_enabled: Optional[str] = None
     kafka_brokers: Optional[str] = None
     kafka_topic: Optional[str] = None

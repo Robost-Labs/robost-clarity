@@ -96,7 +96,7 @@ Robost Clarity consumes LLM traffic data from Kafka topics that are fed from net
 
 ![SCR-20250810-dtaq](https://github.com/user-attachments/assets/7a09d058-8f10-447d-90fb-af7e29b6f8f7)
 
-[Installation Guide](INSTALLATION.md)
+[Installation Guide](commons/docs/INSTALLATION.md)
 
 ## Technology Stack
 
@@ -155,9 +155,9 @@ Within security operations, it provides real-time threat detection and response 
 2. **API Documentation** - Available under /docs in your installation
 
 ### For Administrators
-1. **[User Management](docs/USER_MANAGEMENT.md)** - Manage accounts and permissions
-2. **[Detection Rules](docs/DETECTION_RULES.md)** - Configure security patterns
-3. **[Alert Setup](docs/ALERTS.md)** - Set up notifications
+1. **[User Management](commons/docs/USER_MANAGEMENT.md)** - *Coming Soon*
+2. **[Detection Rules](commons/docs/DETECTION_RULES.md)** - *Coming Soon*
+3. **[Alert Setup](commons/docs/ALERTS.md)** - *Coming Soon*
 
 ---
 
@@ -190,13 +190,12 @@ docker-compose exec web npm test
 ## Documentation
 
 ### User Guides
-- [Installation Guide](INSTALLATION.md) - Complete setup instructions
-- [User Management](docs/USER_MANAGEMENT.md) - Account and permission management
-- [Detection Rules](docs/DETECTION_RULES.md) - Security pattern configuration
+- [Installation Guide](commons/docs/INSTALLATION.md) - Complete setup instructions
 
 ### Technical Documentation
-- [Database Schema](docs/DATABASE.md) - Table structure and relationships
-- [Deployment Guide](docs/DEPLOYMENT.md) - Production deployment strategies
+- [Database Schema](configs/database/schema.md) - Table structure and relationships
+- [Deployment Guide](configs/gcp/CI_CD_SETUP.md) - Production deployment strategies
+- [Extension Guide](extension/README.md) - Chrome Extension documentation
 
 ---
 

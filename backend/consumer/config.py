@@ -12,9 +12,9 @@ class Settings(BaseSettings):
     # PostgreSQL Configuration
     postgres_host: str = "postgres"
     postgres_port: int = 5432
-    postgres_db: str = "shadow_ai"
-    postgres_user: str = "shadow_user"
-    postgres_password: str = "shadow_pass"
+    postgres_db: str = "robost_clarity"
+    postgres_user: str = "robost_user"
+    postgres_password: str = "robost_pass"
     
     # Consumer Configuration
     max_poll_records: int = 500  # Process up to 500 messages per batch

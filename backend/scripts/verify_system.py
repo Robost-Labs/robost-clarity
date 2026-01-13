@@ -13,9 +13,9 @@ def verify_data_flow():
         conn = psycopg2.connect(
             host="localhost",
             port=5432,
-            database="shadow_ai",
-            user="shadow_user",
-            password="shadow_pass"
+            database="robost_clarity",
+            user="robost_user",
+            password="robost_pass"
         )
         cursor = conn.cursor()
         

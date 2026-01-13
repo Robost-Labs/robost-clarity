@@ -33,18 +33,18 @@ services:
     image: postgres:15
     container_name: robost-postgres
     environment:
-      POSTGRES_DB: shadow_ai
-      POSTGRES_USER: shadow_user
-      POSTGRES_PASSWORD: shadow_pass
+      POSTGRES_DB: robost_clarity
+      POSTGRES_USER: robost_user
+      POSTGRES_PASSWORD: robost_pass
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./configs/database/init.sql:/docker-entrypoint-initdb.d/init.sql
 
   consumer:
     build:
-      context: ./services/consumer
+      context: ./backend/consumer
       dockerfile: Dockerfile
     container_name: robost-consumer
     depends_on:
@@ -53,16 +53,16 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       POSTGRES_HOST: postgres
-      POSTGRES_DB: shadow_ai
-      POSTGRES_USER: shadow_user
-      POSTGRES_PASSWORD: shadow_pass
+      POSTGRES_DB: robost_clarity
+      POSTGRES_USER: robost_user
+      POSTGRES_PASSWORD: robost_pass
     volumes:
-      - ./services/consumer:/app
+      - ./backend/consumer:/app
     restart: unless-stopped
 
   api:
     build:
-      context: ./services/api
+      context: ./backend/api
       dockerfile: Dockerfile
     container_name: robost-api
     depends_on:
@@ -71,17 +71,17 @@ services:
       - "8004:8000"
     environment:
       POSTGRES_HOST: postgres
-      POSTGRES_DB: shadow_ai
-      POSTGRES_USER: shadow_user
-      POSTGRES_PASSWORD: shadow_pass
+      POSTGRES_DB: robost_clarity
+      POSTGRES_USER: robost_user
+      POSTGRES_PASSWORD: robost_pass
     volumes:
-      - ./services/api:/app
+      - ./backend/api:/app
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
   web:
     build:
-      context: ./services/web
+      context: ./frontend
       dockerfile: Dockerfile
     container_name: robost-web
     depends_on:
@@ -91,13 +91,13 @@ services:
     environment:
       REACT_APP_API_URL: http://localhost:8004
     volumes:
-      - ./services/web:/app
+      - ./frontend:/app
       - /app/node_modules
     restart: unless-stopped
 
   data-generator:
     build:
-      context: ./services/data-generator
+      context: ./backend/data-generator
       dockerfile: Dockerfile
     container_name: robost-data-generator
     depends_on:
