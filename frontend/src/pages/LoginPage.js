@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Navigate, useLocation, Link } from 'react-router-dom';
+import { GoogleLogin } from '@react-oauth/google';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -15,7 +16,9 @@ const LoginPage = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const { login, isAuthenticated } = useAuth();
+  const [googleError, setGoogleError] = useState('');
+
+  const { login, loginWithGoogle, isAuthenticated } = useAuth();
   const location = useLocation();
 
   const from = location.state?.from?.pathname || '/dashboard';
@@ -43,6 +46,25 @@ const LoginPage = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    setLoading(true);
+    setGoogleError('');
+    try {
+      const result = await loginWithGoogle(credentialResponse.credential);
+      if (!result.success) {
+        setGoogleError(result.error);
+      }
+    } catch (err) {
+      setGoogleError('Google login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleError = () => {
+    setGoogleError('Google login was unsuccessful');
   };
 
   return (
@@ -100,6 +122,35 @@ const LoginPage = () => {
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {loading ? 'Signing In...' : 'Sign In'}
             </Button>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">
+                  Or continue with
+                </span>
+              </div>
+            </div>
+
+            <div className="flex justify-center w-full">
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
+                theme="filled_blue"
+                width="350"
+                text="signin_with"
+                shape="pill"
+              />
+            </div>
+
+            {googleError && (
+              <Alert variant="destructive" className="mt-2">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{googleError}</AlertDescription>
+              </Alert>
+            )}
           </form>
 
           {/* Signup Link */}

@@ -388,10 +388,8 @@ class UserResponse(BaseModel):
 
 class UserCreate(BaseModel):
     """Create model for users - for admin-created users within an organization"""
-    email: str = Field(
-        ...,
-        description="User email address"
-    )
+    username: str = Field(..., min_length=3, max_length=50, description="Username")
+    email: Optional[str] = Field(None, description="User email address")
     password: Optional[str] = Field(None, min_length=6, description="Password - optional if sending invite")
     role: UserRole = UserRole.EMPLOYEE
     first_name: str = Field(..., min_length=1, max_length=50)

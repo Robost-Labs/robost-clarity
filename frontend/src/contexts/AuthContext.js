@@ -25,10 +25,10 @@ export const AuthProvider = ({ children }) => {
       if (savedToken && savedUser) {
         setToken(savedToken);
         setUser(JSON.parse(savedUser));
-        
+
         // Set token in API client
         apiClient.defaults.headers.common['Authorization'] = `Bearer ${savedToken}`;
-        
+
         // Skip token verification for performance - trust stored token
         // try {
         //   // Verify token with API
@@ -40,7 +40,7 @@ export const AuthProvider = ({ children }) => {
         //   logout();
         // }
       }
-      
+
       setLoading(false);
     };
 
@@ -71,7 +71,7 @@ export const AuthProvider = ({ children }) => {
       return { success: true };
     } catch (error) {
       console.error('Login failed:', error);
-      
+
       // Handle validation errors properly
       let errorMessage = 'Login failed';
       if (error.response?.data?.detail) {
@@ -81,11 +81,44 @@ export const AuthProvider = ({ children }) => {
           errorMessage = error.response.data.detail;
         }
       }
-      
-      return { 
-        success: false, 
+
+      return {
+        success: false,
         error: errorMessage
       };
+    }
+  };
+
+  const loginWithGoogle = async (credential) => {
+    try {
+      const response = await apiClient.post('/auth/google', {
+        token: credential
+      });
+
+      const { access_token, role } = response.data;
+      // Decode token to get username if needed, or stick with what we have
+      const userData = { username: response.data.username || "Google User", role }; // API should ideally return username
+
+      // Save to state
+      setToken(access_token);
+      setUser(userData);
+
+      // Save to localStorage
+      localStorage.setItem('auth_token', access_token);
+      localStorage.setItem('auth_user', JSON.stringify(userData));
+
+      // Set default auth header
+      apiClient.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+
+      return { success: true };
+    } catch (error) {
+      console.error('Google Login failed:', error);
+
+      let errorMessage = 'Google Login failed';
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      }
+      return { success: false, error: errorMessage };
     }
   };
 

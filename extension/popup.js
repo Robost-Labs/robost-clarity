@@ -150,7 +150,75 @@ loginForm.addEventListener('submit', async (e) => {
             }
         }
     );
-});
+
+}
+);
+
+// Handle Google Login
+const googleLoginBtn = document.getElementById('google-login-btn');
+if (googleLoginBtn) {
+    googleLoginBtn.addEventListener('click', () => {
+        hideError();
+        setLoading(true);
+
+        const clientId = "832846281418-f9ppe1q5scfjpg39vsa5huke2n7k6tan.apps.googleusercontent.com"; // TODO: Replace with actual Client ID
+        const redirectUri = chrome.identity.getRedirectURL(); // https://<extension-id>.chromiumapp.org/
+        const nonce = Math.random().toString(36).substring(2, 15);
+
+        const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+        authUrl.searchParams.set('client_id', clientId);
+        authUrl.searchParams.set('response_type', 'id_token');
+        authUrl.searchParams.set('redirect_uri', redirectUri);
+        authUrl.searchParams.set('scope', 'openid email profile');
+        authUrl.searchParams.set('nonce', nonce);
+        authUrl.searchParams.set('prompt', 'consent'); // Always ask for consent? Maybe 'select_account'
+
+        chrome.identity.launchWebAuthFlow(
+            {
+                url: authUrl.toString(),
+                interactive: true
+            },
+            (redirectUrl) => {
+                if (chrome.runtime.lastError) {
+                    setLoading(false);
+                    console.error('Google Auth Error:', chrome.runtime.lastError);
+                    showError('Google Sign-In failed or cancelled.');
+                    return;
+                }
+
+                if (redirectUrl) {
+                    // Extract id_token from URL hash
+                    const url = new URL(redirectUrl);
+                    const params = new URLSearchParams(url.hash.substring(1)); // hash starts with #
+                    const idToken = params.get('id_token');
+
+                    if (idToken) {
+                        // Send to backend via background script (or directly if we want, but keeping 'LOGIN' msg pattern is consistently)
+                        // Actually, we can reuse the LOGIN message or create a new one. 
+                        // Let's create a new message type 'GOOGLE_LOGIN' to keep it clean.
+                        chrome.runtime.sendMessage(
+                            { type: 'GOOGLE_LOGIN', token: idToken },
+                            (response) => {
+                                setLoading(false);
+                                if (response && response.success) {
+                                    checkStatus();
+                                } else {
+                                    showError(response?.error || 'Google Login backend verification failed.');
+                                }
+                            }
+                        );
+                    } else {
+                        setLoading(false);
+                        showError('No ID token found in Google response.');
+                    }
+                } else {
+                    setLoading(false);
+                    showError('Google Sign-In failed.');
+                }
+            }
+        );
+    });
+}
 
 // Handle logout
 logoutBtn.addEventListener('click', () => {

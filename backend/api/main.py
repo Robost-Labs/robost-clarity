@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from fastapi.security import HTTPBearer
 from fastapi.responses import JSONResponse
 from datetime import datetime, timedelta
@@ -20,7 +21,7 @@ from models import (
     UserResponse, UserCreate, UserUpdate, PasswordChangeRequest, AdminPasswordResetRequest
 )
 from auth import (
-    authenticate_user, create_token_response, get_current_user, get_admin_user, update_admin_password
+    authenticate_user, create_token_response, get_current_user, get_admin_user, update_admin_password, verify_google_token
 )
 from database import DatabaseService
 # from routes.security import router as security_router
@@ -104,6 +105,97 @@ async def login(login_data: LoginRequest):
         )
     
     return create_token_response(user)
+
+
+class GoogleLoginRequest(BaseModel):
+    token: str
+    source: str = "web"  # "web" or "extension"
+
+
+@app.post("/auth/google", response_model=Token)
+async def google_login(login_data: GoogleLoginRequest):
+    """authenticate user via Google SSO with conditional auto-provisioning"""
+    # Verify Google Token
+    google_user = verify_google_token(login_data.token)
+    email = google_user['email']
+    first_name = google_user.get('given_name', '')
+    last_name = google_user.get('family_name', '')
+    
+    # Check if user exists in database
+    db_user = db_service.get_user_by_email(email)
+    
+    if not db_user:
+        # Check source - only allow auto-provisioning for web
+        if login_data.source == "extension":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found. Please sign up via the web dashboard first.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+            
+        # Auto-provisioning for Web
+        try:
+            domain = email.split('@')[1]
+            
+            # Check if organization exists
+            organization = db_service.get_organization_by_domain(domain)
+            
+            if not organization:
+                # Create new Organization
+                # Derive name from domain (e.g. "robost.ai" -> "Robost.ai")
+                org_name = domain.split('.')[0].capitalize()
+                organization = db_service.create_organization(
+                    name=org_name,
+                    domain=domain,
+                    settings={"created_via": "sso_signup", "plan": "free"}
+                )
+                role = "admin" # First user in new org is admin
+            else:
+                role = "employee" # Subsequent users are employees
+            
+            # Create User
+            import secrets
+            from auth import get_password_hash
+            
+            random_password = secrets.token_urlsafe(16)
+            password_hash = get_password_hash(random_password)
+            
+            db_user = db_service.create_user_with_org(
+                email=email,
+                password_hash=password_hash,
+                role=role,
+                first_name=first_name,
+                last_name=last_name,
+                organization_id=organization['id']
+            )
+            
+        except Exception as e:
+            logger.error(f"Auto-provisioning failed: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create account via SSO."
+            )
+
+    if not db_user['is_active']:
+         raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account is inactive",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Create user object for token generation
+    user = UserInDB(
+        username=db_user['username'],
+        role=UserRole(db_user['role']),
+        hashed_password=db_user['password_hash']
+    )
+    
+    # Update login timestamp
+    db_service.update_user_login(db_user['username'])
+    
+    # Create app token
+    org_id = UUID(db_user['organization_id']) if db_user.get('organization_id') else None
+    return create_token_response(user, org_id)
 
 @app.get("/auth/me", response_model=User)
 async def get_current_user_info(current_user: User = Depends(get_current_user)):

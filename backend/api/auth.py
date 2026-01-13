@@ -11,6 +11,8 @@ from uuid import UUID
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from passlib.context import CryptContext
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 
 from config import settings
 from models import User, UserInDB, UserRole, Token, TokenData
@@ -197,6 +199,44 @@ def update_admin_password(new_password: str):
     if len(new_password) > 72:
         new_password = new_password[:72]
     _admin_password_hash = pwd_context.hash(new_password)
+
+
+def verify_google_token(token: str) -> dict:
+    """
+    Verify Google ID Token and return user info.
+    """
+    try:
+        # Verify the token
+        # We don't specify the client_id here (None) to allow multiple clients (frontend/extension)
+        # In a strict environment, we should check against a list of valid CLIENT_IDs
+        id_info = id_token.verify_oauth2_token(token, google_requests.Request(), None)
+
+        # Check for business email
+        email = id_info.get('email')
+        is_valid_email, error_msg = validate_business_email(email)
+        
+        if not is_valid_email:
+             raise ValueError(error_msg)
+
+        return {
+            'email': email,
+            'name': id_info.get('name'),
+            'picture': id_info.get('picture'),
+            'sub': id_info.get('sub')
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid authentication: {str(e)}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except Exception as e:
+        print(f"Google token verification error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

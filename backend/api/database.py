@@ -2803,6 +2803,119 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"Failed to create user with org {email}: {e}")
             raise
+    
+    def create_user(self, user_data: dict) -> dict:
+        """Create a new user"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Extract fields
+                username = user_data.get('username')
+                email = user_data.get('email')
+                password = user_data.get('password')
+                role = user_data.get('role', 'read_only')
+                first_name = user_data.get('first_name', '')
+                last_name = user_data.get('last_name', '')
+                
+                # Hash password
+                from auth import get_password_hash
+                password_hash = get_password_hash(password) if password else None
+                
+                # Check for existing username
+                cursor.execute("SELECT COUNT(*) FROM users WHERE username = %s", [username])
+                if cursor.fetchone()[0] > 0:
+                    raise ValueError(f"Username '{username}' already exists")
+
+                # Insert
+                cursor.execute("""
+                    INSERT INTO users (username, email, password_hash, role, first_name, last_name, is_active)
+                    VALUES (%s, %s, %s, %s, %s, %s, TRUE)
+                    RETURNING id, username, email, first_name, last_name, role, organization_id, 
+                              is_active, last_login, created_at, updated_at
+                """, [username, email, password_hash, role, first_name, last_name])
+                
+                result = cursor.fetchone()
+                conn.commit()
+                
+                return {
+                    'id': result[0],
+                    'username': result[1],
+                    'email': result[2],
+                    'first_name': result[3],
+                    'last_name': result[4],
+                    'role': result[5],
+                    'organization_id': result[6],
+                    'is_active': result[7],
+                    'last_login': result[8],
+                    'created_at': result[9],
+                    'updated_at': result[10]
+                }
+        except Exception as e:
+            logger.error(f"Failed to create user {user_data.get('username')}: {e}")
+            raise
+
+    def get_users_paginated(self, page=1, page_size=50, search=None, role=None, is_active=None):
+        """Get all users with pagination"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                where_conditions = []
+                params = []
+                
+                if search:
+                    where_conditions.append("(username ILIKE %s OR email ILIKE %s OR first_name ILIKE %s OR last_name ILIKE %s)")
+                    search_param = f"%{search}%"
+                    params.extend([search_param, search_param, search_param, search_param])
+                
+                if role:
+                    where_conditions.append("role = %s")
+                    params.append(role)
+                
+                if is_active is not None:
+                    where_conditions.append("is_active = %s")
+                    params.append(is_active)
+                
+                where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+                
+                # Count
+                cursor.execute(f"SELECT COUNT(*) FROM users {where_clause}", params)
+                total_count = cursor.fetchone()[0]
+                
+                # Data
+                offset = (page - 1) * page_size
+                query = f"""
+                    SELECT id, username, email, first_name, last_name, role, organization_id,
+                           is_active, last_login, created_at, updated_at
+                    FROM users
+                    {where_clause}
+                    ORDER BY created_at DESC
+                    LIMIT %s OFFSET %s
+                """
+                cursor.execute(query, params + [page_size, offset])
+                rows = cursor.fetchall()
+                
+                users = []
+                for row in rows:
+                    users.append({
+                        'id': row[0],
+                        'username': row[1],
+                        'email': row[2],
+                        'first_name': row[3],
+                        'last_name': row[4],
+                        'role': row[5],
+                        'organization_id': row[6],
+                        'is_active': row[7],
+                        'last_login': row[8],
+                        'created_at': row[9],
+                        'updated_at': row[10]
+                    })
+                
+                return users, total_count
+        except Exception as e:
+            logger.error(f"Failed to get paginated users: {e}")
+            raise
 
     def get_users_by_organization(self, organization_id: UUID, page=1, page_size=50, 
                                    search=None, role=None, is_active=None):
