@@ -62,7 +62,7 @@ services:
 
   api:
     build:
-      context: ./backend/api
+      context: ./backend
       dockerfile: Dockerfile
     container_name: robost-api
     depends_on:
@@ -75,13 +75,13 @@ services:
       POSTGRES_USER: robost_user
       POSTGRES_PASSWORD: robost_pass
     volumes:
-      - ./backend/api:/app
+      - ./backend:/app
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
   web:
     build:
-      context: ./frontend
+      context: ./admin-dashboard
       dockerfile: Dockerfile
     container_name: robost-web
     depends_on:
@@ -92,7 +92,7 @@ services:
       REACT_APP_API_URL: http://localhost:8004
       WDS_SOCKET_PORT: 3002
     volumes:
-      - ./frontend:/app
+      - ./admin-dashboard:/app
       - /app/node_modules
     restart: unless-stopped
 

@@ -58,8 +58,12 @@ class StripApiPrefixMiddleware:
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=[
+        "http://localhost:3002",
+        "http://localhost:8004",
+        "chrome-extension://bmdjngkfdilgifhpbipabefgjpjcagbf"
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -75,6 +79,12 @@ app.add_middleware(StripApiPrefixMiddleware)
 # Include multi-tenancy routes
 from routes_multitenancy import router as multitenancy_router
 app.include_router(multitenancy_router)
+
+from routers import admin as admin_router
+app.include_router(admin_router.router)
+
+from routers import proxy_rules
+app.include_router(proxy_rules.router)
 
 # Initialize services
 db_service = DatabaseService()
@@ -107,95 +117,6 @@ async def login(login_data: LoginRequest):
     return create_token_response(user)
 
 
-class GoogleLoginRequest(BaseModel):
-    token: str
-    source: str = "web"  # "web" or "extension"
-
-
-@app.post("/auth/google", response_model=Token)
-async def google_login(login_data: GoogleLoginRequest):
-    """authenticate user via Google SSO with conditional auto-provisioning"""
-    # Verify Google Token
-    google_user = verify_google_token(login_data.token)
-    email = google_user['email']
-    first_name = google_user.get('given_name', '')
-    last_name = google_user.get('family_name', '')
-    
-    # Check if user exists in database
-    db_user = db_service.get_user_by_email(email)
-    
-    if not db_user:
-        # Check source - only allow auto-provisioning for web
-        if login_data.source == "extension":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found. Please sign up via the web dashboard first.",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-            
-        # Auto-provisioning for Web
-        try:
-            domain = email.split('@')[1]
-            
-            # Check if organization exists
-            organization = db_service.get_organization_by_domain(domain)
-            
-            if not organization:
-                # Create new Organization
-                # Derive name from domain (e.g. "robost.ai" -> "Robost.ai")
-                org_name = domain.split('.')[0].capitalize()
-                organization = db_service.create_organization(
-                    name=org_name,
-                    domain=domain,
-                    settings={"created_via": "sso_signup", "plan": "free"}
-                )
-                role = "admin" # First user in new org is admin
-            else:
-                role = "employee" # Subsequent users are employees
-            
-            # Create User
-            import secrets
-            from auth import get_password_hash
-            
-            random_password = secrets.token_urlsafe(16)
-            password_hash = get_password_hash(random_password)
-            
-            db_user = db_service.create_user_with_org(
-                email=email,
-                password_hash=password_hash,
-                role=role,
-                first_name=first_name,
-                last_name=last_name,
-                organization_id=organization['id']
-            )
-            
-        except Exception as e:
-            logger.error(f"Auto-provisioning failed: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create account via SSO."
-            )
-
-    if not db_user['is_active']:
-         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User account is inactive",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    # Create user object for token generation
-    user = UserInDB(
-        username=db_user['username'],
-        role=UserRole(db_user['role']),
-        hashed_password=db_user['password_hash']
-    )
-    
-    # Update login timestamp
-    db_service.update_user_login(db_user['username'])
-    
-    # Create app token
-    org_id = UUID(db_user['organization_id']) if db_user.get('organization_id') else None
-    return create_token_response(user, org_id)
 
 @app.get("/auth/me", response_model=User)
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
@@ -232,6 +153,7 @@ async def get_requests(
         start_date=start_date,
         end_date=end_date,
         search=search,
+        organization_id=current_user.organization_id,
         page=page,
         page_size=page_size
     )
@@ -270,7 +192,7 @@ async def get_request_by_id(
     """Get a single request by ID"""
     try:
         admin_view = current_user.role == UserRole.ADMIN
-        record = db_service.get_request_by_id(request_id, admin_view)
+        record = db_service.get_request_by_id(request_id, admin_view, organization_id=current_user.organization_id)
         
         if not record:
             raise HTTPException(status_code=404, detail="Request not found")
@@ -586,6 +508,7 @@ async def get_sessions(
         min_requests=min_requests,
         max_requests=max_requests,
         risk_level=risk_level,
+        organization_id=current_user.organization_id,
         page=page,
         page_size=page_size
     )
@@ -621,7 +544,7 @@ async def get_session_by_id(
     """Get detailed session information by ID"""
     try:
         admin_view = current_user.role == UserRole.ADMIN
-        session_detail = db_service.get_session_detail(session_id, admin_view)
+        session_detail = db_service.get_session_detail(session_id, admin_view, organization_id=current_user.organization_id)
         
         if not session_detail:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -660,6 +583,7 @@ async def get_alerts(
         start_date=start_date,
         end_date=end_date,
         search=search,
+        organization_id=current_user.organization_id,
         page=page,
         page_size=page_size
     )
@@ -746,7 +670,7 @@ async def bulk_alert_operation(
 async def get_alert_stats(current_user: User = Depends(get_current_user)):
     """Get alert statistics"""
     try:
-        stats = db_service.get_alert_stats()
+        stats = db_service.get_alert_stats(organization_id=current_user.organization_id)
         return stats
     except Exception as e:
         logger.error(f"Failed to get alert stats: {e}")

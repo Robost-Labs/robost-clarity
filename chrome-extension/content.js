@@ -10,6 +10,8 @@
     if (window.__robostClarityInjected) return;
     window.__robostClarityInjected = true;
 
+    console.log('Robost Clarity: Content script injected');
+
     // Provider-specific selectors for prompt inputs
     const PROVIDER_SELECTORS = {
         'chatgpt.com': {
@@ -37,8 +39,10 @@
     // Detect current provider
     function detectProvider() {
         const hostname = window.location.hostname;
+        // console.log('Robost Clarity: Detecting provider for hostname:', hostname);
         for (const domain of Object.keys(PROVIDER_SELECTORS)) {
             if (hostname.includes(domain)) {
+                // console.log('Robost Clarity: Detected provider:', domain);
                 return domain;
             }
         }
@@ -66,6 +70,8 @@
     function sendToBackground(promptText, provider) {
         if (!promptText || promptText.trim().length === 0) return;
 
+        console.log('Robost Clarity: Sending prompt to background', { provider, promptLength: promptText.length });
+
         chrome.runtime.sendMessage({
             type: 'LLM_REQUEST',
             data: {
@@ -79,6 +85,8 @@
         }, (response) => {
             if (chrome.runtime.lastError) {
                 console.log('Robost Clarity: Failed to send to background', chrome.runtime.lastError);
+            } else {
+                console.log('Robost Clarity: Background response:', response);
             }
         });
     }
@@ -92,6 +100,7 @@
                 const promptText = getPromptText(activeElement);
 
                 if (promptText && promptText.trim().length > 0) {
+                    console.log('Robost Clarity: Detected Enter key submission');
                     // Small delay to allow the submission to complete
                     setTimeout(() => {
                         sendToBackground(promptText, provider);
@@ -106,6 +115,7 @@
             const submitBtn = target.closest(selectors.submitBtn);
 
             if (submitBtn) {
+                console.log('Robost Clarity: Detected Submit button click');
                 const inputElement = document.querySelector(selectors.input);
                 const promptText = getPromptText(inputElement);
 
@@ -119,46 +129,80 @@
     // Intercept fetch requests (XHR-level monitoring)
     function interceptFetch() {
         const originalFetch = window.fetch;
+        console.log('Robost Clarity: Initializing fetch interceptor');
 
         window.fetch = async function (...args) {
-            const [url, options] = args;
+            const [resource, config] = args;
 
-            // Check if this is a potential LLM API call
-            if (options && options.method === 'POST' && options.body) {
+            // We process the capture asynchronously to not block the actually request
+            (async () => {
                 try {
                     let bodyText = '';
-                    if (typeof options.body === 'string') {
-                        bodyText = options.body;
-                    } else if (options.body instanceof FormData) {
-                        // Skip FormData for now
+                    let url = '';
+                    let method = 'GET';
+
+                    if (resource instanceof Request) {
+                        url = resource.url;
+                        method = resource.method;
+                        try {
+                            const clone = resource.clone();
+                            bodyText = await clone.text();
+                        } catch (e) {
+                            console.warn('Robost Clarity: Failed to clone/read Request body', e);
+                        }
                     } else {
-                        bodyText = JSON.stringify(options.body);
-                    }
-
-                    // Check for common prompt fields
-                    if (bodyText.includes('"messages"') ||
-                        bodyText.includes('"prompt"') ||
-                        bodyText.includes('"content"')) {
-
-                        const provider = detectProvider();
-                        if (provider) {
-                            chrome.runtime.sendMessage({
-                                type: 'LLM_REQUEST',
-                                data: {
-                                    timestamp: new Date().toISOString(),
-                                    provider: provider,
-                                    url: typeof url === 'string' ? url : url.toString(),
-                                    requestBody: bodyText.substring(0, 10000),
-                                    source: 'fetch_intercept',
-                                    method: 'POST'
+                        url = resource;
+                        // Config might be undefined
+                        if (config) {
+                            method = config.method || 'GET';
+                            if (config.body) {
+                                if (typeof config.body === 'string') {
+                                    bodyText = config.body;
+                                } else if (config.body instanceof FormData) {
+                                    const obj = {};
+                                    config.body.forEach((value, key) => obj[key] = value);
+                                    bodyText = JSON.stringify(obj);
+                                } else {
+                                    bodyText = JSON.stringify(config.body);
                                 }
-                            });
+                            }
                         }
                     }
-                } catch (error) {
-                    // Silently fail to not disrupt page functionality
+
+                    // console.log('Robost Clarity: Fetch intercepted', { url, method, hasBody: !!bodyText });
+
+                    // Normalized check
+                    if (method.toUpperCase() === 'POST' && bodyText) {
+                        // Check for common prompt fields
+                        const hasKeywords = bodyText.includes('"messages"') ||
+                            bodyText.includes('"prompt"') ||
+                            bodyText.includes('"content"') ||
+                            (detectProvider() === 'chatgpt.com' && bodyText.includes('action'));
+
+                        if (hasKeywords) {
+                            const provider = detectProvider();
+                            if (provider) {
+                                console.log('Robost Clarity: LLM Request Detected via Fetch!', { provider, url });
+                                chrome.runtime.sendMessage({
+                                    type: 'LLM_REQUEST',
+                                    data: {
+                                        timestamp: new Date().toISOString(),
+                                        provider: provider,
+                                        url: typeof url === 'string' ? url : url.toString(),
+                                        requestBody: bodyText.substring(0, 10000),
+                                        source: 'fetch_intercept',
+                                        method: 'POST'
+                                    }
+                                });
+                            } else {
+                                // console.log('Robost Clarity: LLM keywords found but provider not detected');
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('Robost Clarity Intercept Error:', err);
                 }
-            }
+            })();
 
             return originalFetch.apply(this, args);
         };
@@ -167,6 +211,8 @@
     // Initialize monitoring
     function init() {
         const provider = detectProvider();
+        console.log('Robost Clarity: Init called. Provider detected:', provider);
+
         if (!provider) {
             console.log('Robost Clarity: Unknown provider, using generic monitoring');
         }
@@ -179,11 +225,11 @@
         // Set up DOM-level monitoring
         monitorFormSubmissions(provider || 'unknown', selectors);
 
-        // Set up fetch interception
-        interceptFetch();
-
         console.log('Robost Clarity: Monitoring initialized for', provider || 'generic');
     }
+
+    // Initialize fetch interception immediately to catch early requests
+    interceptFetch();
 
     // Wait for DOM to be ready
     if (document.readyState === 'loading') {

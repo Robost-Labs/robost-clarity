@@ -161,7 +161,7 @@ if (googleLoginBtn) {
         hideError();
         setLoading(true);
 
-        const clientId = "832846281418-f9ppe1q5scfjpg39vsa5huke2n7k6tan.apps.googleusercontent.com"; // TODO: Replace with actual Client ID
+        const clientId = "832846281418-imi8thvrec39v4rt05a8vk97eaaduch8.apps.googleusercontent.com"; // Updated to match Admin Dashboard Client ID
         const redirectUri = chrome.identity.getRedirectURL(); // https://<extension-id>.chromiumapp.org/
         const nonce = Math.random().toString(36).substring(2, 15);
 

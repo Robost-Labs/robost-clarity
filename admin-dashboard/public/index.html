@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <link rel="icon" href="%PUBLIC_URL%/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="description" content="Robost - Monitor and analyze LLM API traffic" />
+  <title>Robost</title>
+</head>
+
+<body>
+  <noscript>You need to enable JavaScript to run this app.</noscript>
+  <div id="root"></div>
+  <script src="https://www.gstatic.com/firebasejs/8.0/firebase.js"></script>
+  <script>
+    var config = {
+      apiKey: "GCP_API_KEY",
+      authDomain: "GCP_AUTH_DOMAIN",
+    };
+    firebase.initializeApp(config);
+  </script>
+</body>
+
+</html>

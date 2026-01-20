@@ -89,15 +89,16 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const loginWithGoogle = async (credential) => {
+  const loginWithGoogle = async (token) => {
     try {
-      const response = await apiClient.post('/auth/google', {
-        token: credential
+      const response = await apiClient.post('/organizations', {
+        token: token,
+        source: 'web'
       });
 
       const { access_token, role } = response.data;
       // Decode token to get username if needed, or stick with what we have
-      const userData = { username: response.data.username || "Google User", role }; // API should ideally return username
+      const userData = { username: "Google User", role }; // API should ideally return username
 
       // Save to state
       setToken(access_token);
@@ -149,6 +150,7 @@ export const AuthProvider = ({ children }) => {
     token,
     loading,
     login,
+    loginWithGoogle,
     logout,
     isAdmin,
     isAuthenticated,

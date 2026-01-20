@@ -5,7 +5,7 @@
 
 // Configuration
 const CONFIG = {
-  apiBaseUrl: 'https://robost-api-ehnzr3alha-ww.a.run.app', // Production API
+  apiBaseUrl: 'http://localhost:8004', // Local Development API
   llmProviders: {
     'chatgpt.com': { name: 'OpenAI ChatGPT', provider: 'openai' },
     'openai.com': { name: 'OpenAI', provider: 'openai' },
@@ -44,9 +44,11 @@ let stats = {
 // Initialize extension
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Robost Clarity extension installed');
-  loadStoredAuth();
-  loadStats();
 });
+
+// Load auth state on startup (Service Worker wake up)
+const authReady = loadStoredAuth();
+const statsReady = loadStats();
 
 // Load stored authentication state
 async function loadStoredAuth() {
@@ -129,7 +131,7 @@ async function authenticate(email, password) {
 // Authenticate user with Google
 async function authenticateGoogle(token) {
   try {
-    const response = await fetch(`${CONFIG.apiBaseUrl}/auth/google`, {
+    const response = await fetch(`${CONFIG.apiBaseUrl}/organizations`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -225,23 +227,15 @@ async function logout() {
   await saveAuthState();
 }
 
-// Get provider info from URL
-function getProviderFromUrl(url) {
-  try {
-    const hostname = new URL(url).hostname;
-    for (const [domain, info] of Object.entries(CONFIG.llmProviders)) {
-      if (hostname.includes(domain)) {
-        return info;
-      }
-    }
-  } catch (error) {
-    console.error('Failed to parse URL:', error);
-  }
-  return null;
-}
+
+
+// (Removed redundant webRequest listener that caused empty dummy requests)
 
 // Send LLM request to backend
 async function sendLlmRequest(data) {
+  await authReady;
+  await statsReady;
+
   if (!authState.isAuthenticated || !authState.accessToken) {
     console.log('Not authenticated, skipping request send');
     return false;
@@ -276,64 +270,19 @@ async function sendLlmRequest(data) {
   }
 }
 
-// Handle intercepted LLM traffic
-async function handleLlmTraffic(details) {
-  const providerInfo = getProviderFromUrl(details.url);
-  if (!providerInfo) return;
-
-  stats.promptsDetected++;
-  await saveStats();
-
-  // Extract request data
-  const requestData = {
-    timestamp: new Date().toISOString(),
-    provider: providerInfo.provider,
-    provider_name: providerInfo.name,
-    url: details.url,
-    method: details.method,
-    // Note: Request body is captured via content script
-  };
-
-  // Send to backend
-  await sendLlmRequest(requestData);
-}
-
-// Listen for web requests to LLM providers
-chrome.webRequest.onBeforeRequest.addListener(
-  (details) => {
-    if (details.method === 'POST') {
-      handleLlmTraffic(details);
-    }
-  },
-  {
-    urls: [
-      'https://chatgpt.com/*',
-      'https://*.openai.com/*',
-      'https://claude.ai/*',
-      'https://*.anthropic.com/*',
-      'https://gemini.google.com/*',
-      'https://*.canva.com/*',
-      'https://deepseek.com/*',
-      'https://*.perplexity.ai/*',
-      'https://copilot.microsoft.com/*',
-      'https://x.ai/*',
-      'https://*.deepl.com/*',
-      'https://*.grammarly.com/*'
-    ]
-  }
-);
-
 // Handle messages from popup and content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
     case 'GET_STATUS':
-      sendResponse({
-        isAuthenticated: authState.isAuthenticated,
-        organizationName: authState.organizationName,
-        email: authState.email,
-        stats: stats
+      Promise.all([authReady, statsReady]).then(() => {
+        sendResponse({
+          isAuthenticated: authState.isAuthenticated,
+          organizationName: authState.organizationName,
+          email: authState.email,
+          stats: stats
+        });
       });
-      break;
+      return true;
 
     case 'LOGIN':
       authenticate(message.email, message.password).then(sendResponse);
@@ -348,11 +297,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'LLM_REQUEST':
-      // Handle LLM request from content script
-      sendLlmRequest({
-        ...message.data,
-        source: 'content_script'
-      }).then((success) => sendResponse({ success }));
+      statsReady.then(() => {
+        // Update local stats for "Detected"
+        stats.promptsDetected++;
+        stats.lastActivity = new Date().toISOString();
+        saveStats();
+
+        // Handle LLM request from content script
+        sendLlmRequest({
+          ...message.data,
+          source: 'content_script'
+        }).then((success) => sendResponse({ success }));
+      });
       return true;
 
     case 'UPDATE_CONFIG':

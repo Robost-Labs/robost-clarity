@@ -15,6 +15,7 @@ class User(BaseModel):
     role: UserRole
     first_name: Optional[str] = ""
     last_name: Optional[str] = ""
+    organization_id: Optional[UUID] = None
     
 class UserInDB(User):
     hashed_password: str
@@ -193,6 +194,7 @@ class RequestFilters(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     search: Optional[str] = None  # Search in prompt preview
+    organization_id: Optional[UUID] = None
     page: int = Field(1, ge=1)
     page_size: int = Field(50, ge=1, le=1000)
 
@@ -248,6 +250,7 @@ class SessionFilters(BaseModel):
     min_requests: Optional[int] = Field(None, ge=1)
     max_requests: Optional[int] = Field(None, ge=1)
     risk_level: Optional[str] = Field(None, pattern="^(critical|high|medium|low)$")
+    organization_id: Optional[UUID] = None
     page: int = Field(1, ge=1)
     page_size: int = Field(50, ge=1, le=1000)
 
@@ -332,6 +335,7 @@ class AlertFilters(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     search: Optional[str] = None
+    organization_id: Optional[UUID] = None
     page: int = Field(1, ge=1)
     page_size: int = Field(50, ge=1, le=1000)
 

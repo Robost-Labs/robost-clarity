@@ -28,11 +28,13 @@ security = HTTPBearer()
 db_service = DatabaseService()
 
 # List of blocked public email domains (users must use business emails)
+# List of blocked public email domains (users must use business emails)
+# For testing purposes, we are allowing all domains. Uncomment in production.
 BLOCKED_EMAIL_DOMAINS = {
-    'gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'aol.com',
-    'icloud.com', 'protonmail.com', 'mail.com', 'yandex.com', 'zoho.com',
-    'live.com', 'msn.com', 'me.com', 'mac.com', 'qq.com', '163.com',
-    'sina.com', 'ymail.com', 'rocketmail.com', 'tutanota.com', 'gmx.com'
+    # 'gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'aol.com',
+    # 'icloud.com', 'protonmail.com', 'mail.com', 'yandex.com', 'zoho.com',
+    # 'live.com', 'msn.com', 'me.com', 'mac.com', 'qq.com', '163.com',
+    # 'sina.com', 'ymail.com', 'rocketmail.com', 'tutanota.com', 'gmx.com'
 }
 
 # Store the current admin password hash (will be updated when changed via UI)
@@ -289,7 +291,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 username=db_user['username'], 
                 role=UserRole(db_user['role']),
                 first_name=db_user.get('first_name', ''),
-                last_name=db_user.get('last_name', '')
+                last_name=db_user.get('last_name', ''),
+                organization_id=db_user.get('organization_id')
             )
     except Exception as e:
         print(f"Database error during user lookup: {e}")

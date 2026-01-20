@@ -29,3 +29,6 @@ README.md
 .env
 .DS_Store
 *.log
+consumer/
+data-generator/
+scripts/

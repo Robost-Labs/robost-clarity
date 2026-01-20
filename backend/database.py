@@ -98,6 +98,10 @@ class DatabaseService:
                     where_conditions.append("prompt ILIKE %s")
                     where_params.append(f"%{filters.search}%")
                 
+                if filters.organization_id:
+                    where_conditions.append("organization_id = %s")
+                    where_params.append(str(filters.organization_id))
+                
                 where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
                 
                 # Count total records
@@ -194,8 +198,8 @@ class DatabaseService:
             
         return record
     
-    def get_request_by_id(self, request_id: UUID, admin_view: bool = False) -> Optional[Dict]:
-        """Get a single request by ID"""
+    def get_request_by_id(self, request_id: UUID, admin_view: bool = False, organization_id: Optional[UUID] = None) -> Optional[Dict]:
+        """Get a single request by ID with optional org check"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -216,6 +220,11 @@ class DatabaseService:
                     """
                 
                 params = [settings.prompt_truncate_length, str(request_id)] if not admin_view else [str(request_id)]
+                
+                if organization_id:
+                    query += " AND organization_id = %s"
+                    params.append(str(organization_id))
+
                 cursor.execute(query, params)
                 record = cursor.fetchone()
                 
@@ -571,8 +580,16 @@ class DatabaseService:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
+                # Organization filter for base query parts
+                org_filter = ""
+                session_params = []
+                
+                if filters.organization_id:
+                    org_filter = " AND organization_id = %s"
+                    session_params.append(str(filters.organization_id))
+                
                 # Build the session grouping query
-                base_query = """
+                base_query = f"""
                 WITH session_groups AS (
                     SELECT 
                         src_ip,
@@ -585,7 +602,7 @@ class DatabaseService:
                             ELSE 0 
                         END as new_session_flag
                     FROM llm_requests 
-                    WHERE 1=1
+                    WHERE 1=1 {org_filter}
                 ),
                 session_starts AS (
                     SELECT 
@@ -618,6 +635,7 @@ class DatabaseService:
                                 WHEN EXTRACT(EPOCH FROM r.timestamp - ss.timestamp)/60 <= 30 THEN 30
                                 ELSE 60
                             END
+                        {org_filter.replace('organization_id', 'r.organization_id')}
                     GROUP BY ss.src_ip, ss.session_num
                     HAVING MIN(r.timestamp) >= %s AND MIN(r.timestamp) <= %s
                 )
@@ -643,7 +661,10 @@ class DatabaseService:
                 WHERE 1=1
                 """
                 
-                params = []
+                # Combine params: session params (used twice) + date params
+                params = session_params + session_params
+                
+                # Date range filter
                 
                 # Date range filter
                 start_date = filters.start_date or (datetime.utcnow() - timedelta(days=7))
@@ -739,11 +760,19 @@ class DatabaseService:
             logger.error(f"Failed to get sessions: {e}")
             raise
     
-    def get_session_detail(self, session_id, admin_view=False):
+    def get_session_detail(self, session_id, admin_view=False, organization_id=None):
         """Get detailed session information including request timeline"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
+                
+                # Organization filter
+                org_filter = ""
+                params = []
+                
+                if organization_id:
+                    org_filter = " AND organization_id = %s"
+                    params.append(str(organization_id))
                 
                 # Parse session ID to get src_ip and session number
                 parts = session_id.split('-')
@@ -754,7 +783,7 @@ class DatabaseService:
                 session_num = parts[-1]
                 
                 # Get session summary
-                session_query = """
+                session_query = f"""
                 WITH session_groups AS (
                     SELECT 
                         src_ip,
@@ -767,7 +796,7 @@ class DatabaseService:
                             ELSE 0 
                         END as new_session_flag
                     FROM llm_requests 
-                    WHERE src_ip = %s
+                    WHERE src_ip = %s {org_filter}
                 ),
                 session_starts AS (
                     SELECT 
@@ -795,18 +824,21 @@ class DatabaseService:
                             WHEN EXTRACT(EPOCH FROM r.timestamp - ss.timestamp)/60 <= 30 THEN 30
                             ELSE 60
                         END
-                WHERE ss.session_num = %s AND r.src_ip = %s
+                WHERE ss.session_num = %s AND r.src_ip = %s {org_filter.replace('organization_id', 'r.organization_id')}
                 GROUP BY ss.session_num
                 """
                 
-                cursor.execute(session_query, [src_ip, int(session_num), src_ip])
+                # Params: src_ip, [org_id], session_num, src_ip, [org_id]
+                # The org_filter params are already in the 'params' list
+                query_params = [src_ip] + params + [int(session_num), src_ip] + params
+                cursor.execute(session_query, query_params)
                 session_row = cursor.fetchone()
                 
                 if not session_row:
                     return None
                 
-                # Get all requests in this session
-                requests_query = """
+                # Get requests for this session
+                request_query = f"""
                 WITH session_groups AS (
                     SELECT 
                         src_ip,
@@ -819,7 +851,7 @@ class DatabaseService:
                             ELSE 0 
                         END as new_session_flag
                     FROM llm_requests 
-                    WHERE src_ip = %s
+                    WHERE src_ip = %s {org_filter}
                 ),
                 session_starts AS (
                     SELECT 
@@ -829,22 +861,18 @@ class DatabaseService:
                     FROM session_groups
                 )
                 SELECT 
-                    r.id,
-                    r.timestamp,
-                    r.src_ip,
-                    r.provider,
-                    r.model,
-                    r.endpoint,
-                    r.method,
-                    r.,
-                    r.duration_ms,
-                    r.status_code,
-                    r.risk_score,
-                    r.is_flagged,
-                    r.flag_reason,
-                    r.created_at
+                    r.id, r.timestamp, r.src_ip, r.provider, r.model, r.endpoint, r.method,
+                """
+                
+                if admin_view:
+                    request_query += "r.prompt, r.response, r.headers, "
+                else:
+                    request_query += f"SUBSTRING(r.prompt FROM 1 FOR {settings.prompt_truncate_length}) as prompt_preview, "
+                
+                request_query += f"""
+                    r.duration_ms, r.status_code, r.risk_score, r.is_flagged, r.flag_reason, r.created_at
                 FROM session_starts ss
-                JOIN llm_requests r ON r.src_ip = ss.src_ip
+                JOIN llm_requests r ON r.src_ip = ss.src_ip 
                     AND r.timestamp >= ss.timestamp 
                     AND r.timestamp <= ss.timestamp + INTERVAL '1 hour'
                     AND ABS(EXTRACT(EPOCH FROM r.timestamp - ss.timestamp)/60) <= 
@@ -852,11 +880,15 @@ class DatabaseService:
                             WHEN EXTRACT(EPOCH FROM r.timestamp - ss.timestamp)/60 <= 30 THEN 30
                             ELSE 60
                         END
+                    {org_filter.replace('organization_id', 'r.organization_id')}
                 WHERE ss.session_num = %s AND r.src_ip = %s
-                ORDER BY r.timestamp
+                ORDER BY r.timestamp ASC
                 """
-                
-                cursor.execute(requests_query, [src_ip, int(session_num), src_ip])
+
+                # Execute with correct params
+                # Params structure: src_ip, [org_id], session_num, src_ip, [org_id]
+                request_params = [src_ip] + params + [int(session_num), src_ip] + params
+                cursor.execute(request_query, request_params)
                 request_rows = cursor.fetchall()
                 
                 # Process requests
@@ -1305,13 +1337,21 @@ class DatabaseService:
             logger.error(f"Failed to perform bulk alert operation: {e}")
             raise
     
-    def get_alert_stats(self):
+    def get_alert_stats(self, organization_id=None):
         """Get alert statistics - using flagged LLM requests"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                cursor.execute("""
+                # Build WHERE clause
+                where_clause = "WHERE created_at >= NOW() - INTERVAL '24 hours'"
+                params = []
+                
+                if organization_id:
+                    where_clause += " AND organization_id = %s"
+                    params.append(str(organization_id))
+                
+                cursor.execute(f"""
                     SELECT 
                         COUNT(*) as total_alerts,
                         COUNT(*) FILTER (WHERE is_flagged = true) as new_alerts,
@@ -1320,8 +1360,8 @@ class DatabaseService:
                         COUNT(*) FILTER (WHERE risk_score >= 80) as critical_alerts,
                         COUNT(*) FILTER (WHERE risk_score >= 60 AND risk_score < 80) as high_alerts
                     FROM llm_requests
-                    WHERE created_at >= NOW() - INTERVAL '24 hours'
-                """)
+                    {where_clause}
+                """, params)
                 
                 row = cursor.fetchone()
                 
@@ -2790,6 +2830,7 @@ class DatabaseService:
                     'id': result[0],
                     'username': result[1],
                     'email': result[2],
+                    'password_hash': password_hash,
                     'first_name': result[3],
                     'last_name': result[4],
                     'role': result[5],

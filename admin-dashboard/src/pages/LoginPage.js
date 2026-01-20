@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Navigate, useLocation, Link } from 'react-router-dom';
-import { GoogleLogin } from '@react-oauth/google';
+import { useNavigate, Navigate, useLocation, Link } from 'react-router-dom';
+
+import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
+import { auth, googleProvider } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -20,6 +22,7 @@ const LoginPage = () => {
 
   const { login, loginWithGoogle, isAuthenticated } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
 
   const from = location.state?.from?.pathname || '/dashboard';
 
@@ -48,23 +51,28 @@ const LoginPage = () => {
     }
   };
 
-  const handleGoogleSuccess = async (credentialResponse) => {
+  const handleGoogleLogin = async () => {
     setLoading(true);
     setGoogleError('');
     try {
-      const result = await loginWithGoogle(credentialResponse.credential);
-      if (!result.success) {
-        setGoogleError(result.error);
+      const result = await signInWithPopup(auth, googleProvider);
+      // Get the Google Access Token/ID Token from the credential result, NOT the firebase user
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const token = credential.idToken;
+
+      const loginResult = await loginWithGoogle(token);
+      if (loginResult.success) {
+        // Explicitly redirect to dashboard or the 'from' location
+        navigate(from, { replace: true });
+      } else {
+        setGoogleError(loginResult.error);
       }
     } catch (err) {
-      setGoogleError('Google login failed');
+      console.error(err);
+      setGoogleError('Google login failed: ' + err.message);
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleGoogleError = () => {
-    setGoogleError('Google login was unsuccessful');
   };
 
   return (
@@ -135,14 +143,20 @@ const LoginPage = () => {
             </div>
 
             <div className="flex justify-center w-full">
-              <GoogleLogin
-                onSuccess={handleGoogleSuccess}
-                onError={handleGoogleError}
-                theme="filled_blue"
-                width="350"
-                text="signin_with"
-                shape="pill"
-              />
+              <div className="flex justify-center w-full">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full relative"
+                  onClick={handleGoogleLogin}
+                  disabled={loading}
+                >
+                  <svg className="mr-2 h-4 w-4" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512">
+                    <path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 123 24.5 166.3 64.9l-67.5 64.9C258.5 52.6 94.3 116.6 94.3 256c0 86.5 69.1 156.6 153.7 156.6 98.2 0 135-70.4 140.8-106.9H248v-85.3h236.1c2.3 12.7 3.9 24.9 3.9 41.4z"></path>
+                  </svg>
+                  Sign in with Google
+                </Button>
+              </div>
             </div>
 
             {googleError && (
