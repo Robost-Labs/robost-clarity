@@ -775,7 +775,8 @@ async def export_data(
             export_request.data_type,
             export_request.start_date,
             export_request.end_date,
-            max_limit
+            max_limit,
+            organization_id=current_user.organization_id
         )
         
         # Format response based on requested format
@@ -885,7 +886,8 @@ async def get_users(
             page_size=page_size,
             search=search,
             role=role,
-            is_active=is_active
+            is_active=is_active,
+            organization_id=admin_user.organization_id
         )
         
         total_pages = (total_count + page_size - 1) // page_size
@@ -910,7 +912,10 @@ async def create_user(
 ):
     """Create a new user (Admin only)"""
     try:
-        created_user = db_service.create_user(user.dict())
+        user_data = user.dict()
+        user_data['organization_id'] = str(admin_user.organization_id) if admin_user.organization_id else None
+        
+        created_user = db_service.create_user(user_data)
         return UserResponse(**created_user)
     except Exception as e:
         if "duplicate key" in str(e).lower():
@@ -932,7 +937,7 @@ async def update_user(
         if not update_data:
             raise HTTPException(status_code=400, detail="No fields to update")
         
-        updated_user = db_service.update_user(user_id, update_data)
+        updated_user = db_service.update_user(user_id, update_data, organization_id=admin_user.organization_id)
         
         if not updated_user:
             raise HTTPException(status_code=404, detail="User not found")
@@ -951,7 +956,7 @@ async def delete_user(
 ):
     """Delete a user (Admin only)"""
     try:
-        deleted = db_service.delete_user(user_id)
+        deleted = db_service.delete_user(user_id, organization_id=admin_user.organization_id)
         
         if not deleted:
             raise HTTPException(status_code=404, detail="User not found")

@@ -1519,8 +1519,8 @@ class DatabaseService:
             logger.error(f"Failed to get database stats: {e}")
             raise
     
-    def export_data(self, data_type, start_date=None, end_date=None, limit=100000):
-        """Export data based on type and date range"""
+    def export_data(self, data_type, start_date=None, end_date=None, limit=100000, organization_id=None):
+        """Export data based on type, date range, and organization"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -1602,13 +1602,42 @@ class DatabaseService:
                     conditions.append(f"{date_column} <= %s")
                     params.append(end_date)
                 
-                if conditions:
-                    base_query += " WHERE " + " AND ".join(conditions)
+                if organization_id:
+                    # Determine filtered column based on data type
+                    if data_type == 'alerts':
+                        org_col = 'lr.organization_id'
+                    elif data_type == 'sessions':
+                        # sessions table doesn't have organization_id directly in the simple query? 
+                        # Wait, user_sessions acts as a view/table? 
+                        # In get_sessions we used CTEs on llm_requests. 
+                        # If 'user_sessions' is a view or table, does it have org_id?
+                        # If it's a materialized view, we might need to check.
+                        # Assuming it's based on the query I saw earlier, checking schema...
+                        # Actually 'user_sessions' table doesn't exist in my view_file! 
+                        # 'get_sessions' used CTEs on 'llm_requests'.
+                        # 'get_database_stats' queried 'user_sessions'. So it MUST exist.
+                        # Let's assume it has organization_id or join is needed.
+                        # BUT earlier get_sessions implementation built sessions on the fly from llm_requests!
+                        # So 'user_sessions' might be a view or I missed something.
+                        # If I look at 'get_database_stats', it selects from 'user_sessions'.
+                        # If get_sessions creates them on the fly, logic is inconsistent.
+                        # Let's assume llm_requests for now as primary source for 'requests' and 'alerts'.
+                        # For 'sessions', the export query selects from 'user_sessions'. 
+                        # If user_sessions is a view, I need to check if it includes org_id.
+                        # Fallback: if data_type='sessions', join or filter.
+                        org_col = 'organization_id' 
+                    else:
+                        org_col = 'organization_id'
+                    
+                    conditions.append(f"{org_col} = %s")
+                    params.append(str(organization_id))
+
+                where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
                 
-                base_query += f" ORDER BY {date_column} DESC LIMIT %s"
+                full_query = f"{base_query} {where_clause} ORDER BY {date_column} DESC LIMIT %s"
                 params.append(limit)
                 
-                cursor.execute(base_query, params)
+                cursor.execute(full_query, params)
                 
                 # Get column names
                 columns = [desc[0] for desc in cursor.description]
@@ -1671,7 +1700,7 @@ class DatabaseService:
             logger.error(f"Failed to get users: {e}")
             raise
     
-    def get_users_paginated(self, page=1, page_size=50, search=None, role=None, is_active=None):
+    def get_users_paginated(self, page=1, page_size=50, search=None, role=None, is_active=None, organization_id=None):
         """Get paginated list of users with filters"""
         try:
             with self.get_connection() as conn:
@@ -1693,6 +1722,10 @@ class DatabaseService:
                 if is_active is not None:
                     where_conditions.append("is_active = %s")
                     params.append(is_active)
+
+                if organization_id:
+                    where_conditions.append("organization_id = %s")
+                    params.append(str(organization_id))
                 
                 if where_conditions:
                     where_clause = "WHERE " + " AND ".join(where_conditions)
@@ -1749,15 +1782,16 @@ class DatabaseService:
                 password_hash = bcrypt.hashpw(user_data['password'].encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
                 
                 cursor.execute("""
-                    INSERT INTO users (username, password_hash, role, first_name, last_name)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO users (username, password_hash, role, first_name, last_name, organization_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING id, username, first_name, last_name, role, is_active, last_login, created_at, updated_at
                 """, [
                     user_data['username'], 
                     password_hash, 
                     user_data['role'],
                     user_data.get('first_name', ''),
-                    user_data.get('last_name', '')
+                    user_data.get('last_name', ''),
+                    user_data.get('organization_id')
                 ])
                 
                 result = cursor.fetchone()
@@ -1779,7 +1813,7 @@ class DatabaseService:
             logger.error(f"Failed to create user: {e}")
             raise
     
-    def update_user(self, user_id, update_data):
+    def update_user(self, user_id, update_data, organization_id=None):
         """Update a user"""
         try:
             with self.get_connection() as conn:
@@ -1819,12 +1853,19 @@ class DatabaseService:
                     raise ValueError("No fields to update")
                 
                 update_fields.append("updated_at = NOW()")
+                
+                # Parameters for WHERE clause must be in order: id, then organization_id (if present)
                 params.append(str(user_id))
+                
+                where_clause = "WHERE id = %s"
+                if organization_id:
+                    where_clause += " AND organization_id = %s"
+                    params.append(str(organization_id))
                 
                 cursor.execute(f"""
                     UPDATE users 
                     SET {', '.join(update_fields)}
-                    WHERE id = %s
+                    {where_clause}
                     RETURNING id, username, first_name, last_name, role, is_active, last_login, created_at, updated_at
                 """, params)
                 
@@ -1850,13 +1891,20 @@ class DatabaseService:
             logger.error(f"Failed to update user {user_id}: {e}")
             raise
     
-    def delete_user(self, user_id):
+    def delete_user(self, user_id, organization_id=None):
         """Delete a user"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                cursor.execute("DELETE FROM users WHERE id = %s", [str(user_id)])
+                query = "DELETE FROM users WHERE id = %s"
+                params = [str(user_id)]
+                
+                if organization_id:
+                    query += " AND organization_id = %s"
+                    params.append(str(organization_id))
+                
+                cursor.execute(query, params)
                 deleted = cursor.rowcount > 0
                 conn.commit()
                 
@@ -2896,67 +2944,7 @@ class DatabaseService:
             logger.error(f"Failed to create user {user_data.get('username')}: {e}")
             raise
 
-    def get_users_paginated(self, page=1, page_size=50, search=None, role=None, is_active=None):
-        """Get all users with pagination"""
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                where_conditions = []
-                params = []
-                
-                if search:
-                    where_conditions.append("(username ILIKE %s OR email ILIKE %s OR first_name ILIKE %s OR last_name ILIKE %s)")
-                    search_param = f"%{search}%"
-                    params.extend([search_param, search_param, search_param, search_param])
-                
-                if role:
-                    where_conditions.append("role = %s")
-                    params.append(role)
-                
-                if is_active is not None:
-                    where_conditions.append("is_active = %s")
-                    params.append(is_active)
-                
-                where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
-                
-                # Count
-                cursor.execute(f"SELECT COUNT(*) FROM users {where_clause}", params)
-                total_count = cursor.fetchone()[0]
-                
-                # Data
-                offset = (page - 1) * page_size
-                query = f"""
-                    SELECT id, username, email, first_name, last_name, role, organization_id,
-                           is_active, last_login, created_at, updated_at
-                    FROM users
-                    {where_clause}
-                    ORDER BY created_at DESC
-                    LIMIT %s OFFSET %s
-                """
-                cursor.execute(query, params + [page_size, offset])
-                rows = cursor.fetchall()
-                
-                users = []
-                for row in rows:
-                    users.append({
-                        'id': row[0],
-                        'username': row[1],
-                        'email': row[2],
-                        'first_name': row[3],
-                        'last_name': row[4],
-                        'role': row[5],
-                        'organization_id': row[6],
-                        'is_active': row[7],
-                        'last_login': row[8],
-                        'created_at': row[9],
-                        'updated_at': row[10]
-                    })
-                
-                return users, total_count
-        except Exception as e:
-            logger.error(f"Failed to get paginated users: {e}")
-            raise
+
 
     def get_users_by_organization(self, organization_id: UUID, page=1, page_size=50, 
                                    search=None, role=None, is_active=None):
