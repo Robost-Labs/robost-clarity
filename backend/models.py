@@ -88,6 +88,14 @@ class ExtensionAuthResponse(BaseModel):
     organization_name: str
     user_id: UUID
 
+class SSOLoginResponse(Token):
+    """Enhanced Token response for SSO with organization details"""
+    organization_id: Optional[UUID] = None
+    organization_name: Optional[str] = None
+    user_id: Optional[UUID] = None
+    username: Optional[str] = None
+
+
 # Request/Response Models
 class LLMRequestResponse(BaseModel):
     """Response model for LLM requests with security considerations"""

@@ -6,7 +6,7 @@ import logging
 
 from auth import verify_google_token, get_password_hash, create_token_response
 from database import DatabaseService
-from models import Token, UserInDB, UserRole
+from models import Token, UserInDB, UserRole, SSOLoginResponse
 
 router = APIRouter(tags=["admin"])
 db_service = DatabaseService()
@@ -97,4 +97,23 @@ async def create_organization_sso(login_data: GoogleLoginRequest):
     
     # Create app token
     org_id = UUID(db_user['organization_id']) if db_user.get('organization_id') else None
-    return create_token_response(user, org_id)
+    token_resp = create_token_response(user, org_id)
+    
+    # Get organization name for the response
+    org_name = None
+    if org_id:
+        org = db_service.get_organization_by_id(db_user['organization_id'])
+        if org:
+            org_name = org['name']
+            
+    # Return enhanced response
+    return SSOLoginResponse(
+        access_token=token_resp.access_token,
+        token_type=token_resp.token_type,
+        expires_in=token_resp.expires_in,
+        role=token_resp.role,
+        organization_id=org_id,
+        organization_name=org_name,
+        user_id=UUID(db_user['id']),
+        username=db_user['username']
+    )

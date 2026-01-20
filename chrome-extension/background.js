@@ -105,6 +105,7 @@ async function authenticate(email, password) {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      console.warn('Authentication failed response:', { status: response.status, data: errorData });
       throw new Error(errorData.detail || `Authentication failed (${response.status})`);
     }
 
@@ -122,7 +123,7 @@ async function authenticate(email, password) {
     await saveAuthState();
     return { success: true, organizationName: data.organization_name };
   } catch (error) {
-    console.error('Authentication error:', error.message || error);
+    console.error('Authentication error details:', error);
     return { success: false, error: error.message || 'Authentication failed' };
   }
 }
@@ -146,64 +147,50 @@ async function authenticateGoogle(token) {
 
     const data = await response.json();
 
-    // Check if user has required role for extension
-    // The backend /auth/google returns a token. We need to verify role from it? 
-    // Actually the backend returns a Token object which might not include role in plain text immediately unless we parse JWT.
-    // However, for consistency with 'authenticate', we should set authState.
-    // We should parse the JWT to get the role if we want to enforce role check on client side, 
-    // OR we trust the backend to only issue tokens to valid users.
-    // But 'authenticate' checked role... explicitly? No, 'authenticate' in background.js just took what backend gave it.
-    // Wait, 'authenticate' in background.js sets `authState` from `data`.
-    // `login` in backend returns `Token` model: { access_token, token_type, role, expires_in }
-
-    // Let's see `create_token_response` in backend.
-
     authState = {
       isAuthenticated: true,
       accessToken: data.access_token,
-      // We need these fields but standard Token response might not have them directly if it's just access_token?
-      // Let's check backend return type.
-      // create_token_response returns Token
-      // class Token(BaseModel):
-      //    access_token: str
-      //    token_type: str
-      //    expires_in: int
-      //    role: UserRole
-      // It DOES NOT return user_id, organization_id, organization_name etc. in the root response?
-      // Wait, 'authenticate' function in background.js (lines 111-118) expects:
-      // accessToken, organizationId, organizationName, userId, email.
-      // But standard /auth/login returns Token model.
-
-      // I need to check `authenticate_extension_user` in backend/auth.py. 
-      // OH! `authenticate_extension_user` returns a `dict` with all that info!
-      // AND there is a specific endpoint `/auth/extension/login` (lines 96 in background.js).
-      // But I added `/auth/google` to `main.py` which uses `create_token_response`.
-
-      // Issue: `/auth/google` returns standard `Token` (access_token, role). It MISSES org_id, user_id, name for the extension state.
-      // Solution: I should update the /auth/google endpoint or make a second call to /auth/me or similar.
-      // OR I can decode the JWT in background.js. The JWT has sub (username), role, org_id.
-      // But organizationName is not in JWT.
-
-      // Let's fetch user info after login.
+      // Use details from the enhanced response if available
+      organizationId: data.organization_id,
+      organizationName: data.organization_name || "Organization",
+      userId: data.user_id,
+      email: data.username // Using username as email/identifier for now
     };
 
-    // Fetch detailed user info to populate authState completely
-    const userResp = await fetch(`${CONFIG.apiBaseUrl}/auth/me`, {
-      headers: { 'Authorization': `Bearer ${data.access_token}` }
-    });
-    const userData = await userResp.json();
+    // Fallback/Enhancement: Verify organization name if it's still default
+    if (!authState.organizationName || authState.organizationName === 'Organization') {
+      try {
+        // Try fetching explicit organization details
+        const orgResp = await fetch(`${CONFIG.apiBaseUrl}/organizations/me`, {
+          headers: { 'Authorization': `Bearer ${data.access_token}` }
+        });
+        if (orgResp.ok) {
+          const orgData = await orgResp.json();
+          if (orgData.name) {
+            authState.organizationName = orgData.name;
+            authState.organizationId = orgData.id;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to fetch detailed organization info:', e);
+      }
+    }
 
-    // We might need organization name. 
-    // For now let's fill what we can.
-
-    authState = {
-      isAuthenticated: true,
-      accessToken: data.access_token,
-      organizationId: userData.organization_id, // If returned by /auth/me
-      organizationName: "Organization", // Placeholder or fetch if possible. /auth/me returns User model, might not have org name.
-      userId: userData.id, // If in User model
-      email: userData.email || userData.username
-    };
+    // Fallback for user details
+    if (!authState.userId) {
+      // Fetch detailed user info ONLY if missing
+      try {
+        const userResp = await fetch(`${CONFIG.apiBaseUrl}/auth/me`, {
+          headers: { 'Authorization': `Bearer ${data.access_token}` }
+        });
+        const userData = await userResp.json();
+        authState.userId = userData.id;
+        authState.email = userData.email || userData.username;
+        if (!authState.organizationId) authState.organizationId = userData.organization_id;
+      } catch (e) {
+        console.warn('Failed to fetch user details fallback:', e);
+      }
+    }
 
     await saveAuthState();
     return { success: true, organizationName: authState.organizationName };

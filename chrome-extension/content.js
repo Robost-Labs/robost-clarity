@@ -70,31 +70,45 @@
     function sendToBackground(promptText, provider) {
         if (!promptText || promptText.trim().length === 0) return;
 
+        // Check if extension context is still valid
+        if (!chrome.runtime?.id) {
+            console.warn('Robost Clarity: Extension context invalidated, suppressing message sending.');
+            return;
+        }
+
         console.log('Robost Clarity: Sending prompt to background', { provider, promptLength: promptText.length });
 
-        chrome.runtime.sendMessage({
-            type: 'LLM_REQUEST',
-            data: {
-                timestamp: new Date().toISOString(),
-                provider: provider,
-                url: window.location.href,
-                prompt: promptText.substring(0, 10000), // Limit prompt size
-                source: 'content_script',
-                method: 'POST'
-            }
-        }, (response) => {
-            if (chrome.runtime.lastError) {
-                console.log('Robost Clarity: Failed to send to background', chrome.runtime.lastError);
-            } else {
-                console.log('Robost Clarity: Background response:', response);
-            }
-        });
+        try {
+            chrome.runtime.sendMessage({
+                type: 'LLM_REQUEST',
+                data: {
+                    timestamp: new Date().toISOString(),
+                    provider: provider,
+                    url: window.location.href,
+                    prompt: promptText.substring(0, 10000), // Limit prompt size
+                    source: 'content_script',
+                    method: 'POST'
+                }
+            }, (response) => {
+                // Check for lastError to avoid "Unchecked runtime.lastError"
+                if (chrome.runtime.lastError) {
+                    console.log('Robost Clarity: Note - Failed to send to background (could be transient/context invalid)', chrome.runtime.lastError.message);
+                } else {
+                    console.log('Robost Clarity: Background response:', response);
+                }
+            });
+        } catch (e) {
+            console.warn('Robost Clarity: Error sending message (context likely invalidated):', e);
+        }
     }
 
     // Monitor form submissions
     function monitorFormSubmissions(provider, selectors) {
         // Monitor Enter key press
         document.addEventListener('keydown', (e) => {
+            // Check context validity early
+            if (!chrome.runtime?.id) return;
+
             if (e.key === 'Enter' && !e.shiftKey) {
                 const activeElement = document.activeElement;
                 const promptText = getPromptText(activeElement);
@@ -103,7 +117,10 @@
                     console.log('Robost Clarity: Detected Enter key submission');
                     // Small delay to allow the submission to complete
                     setTimeout(() => {
-                        sendToBackground(promptText, provider);
+                        // Check again inside timeout
+                        if (chrome.runtime?.id) {
+                            sendToBackground(promptText, provider);
+                        }
                     }, 100);
                 }
             }
@@ -111,6 +128,9 @@
 
         // Monitor click on submit buttons
         document.addEventListener('click', (e) => {
+            // Check context validity
+            if (!chrome.runtime?.id) return;
+
             const target = e.target;
             const submitBtn = target.closest(selectors.submitBtn);
 
@@ -183,17 +203,29 @@
                             const provider = detectProvider();
                             if (provider) {
                                 console.log('Robost Clarity: LLM Request Detected via Fetch!', { provider, url });
-                                chrome.runtime.sendMessage({
-                                    type: 'LLM_REQUEST',
-                                    data: {
-                                        timestamp: new Date().toISOString(),
-                                        provider: provider,
-                                        url: typeof url === 'string' ? url : url.toString(),
-                                        requestBody: bodyText.substring(0, 10000),
-                                        source: 'fetch_intercept',
-                                        method: 'POST'
+
+                                // Check extension context before sending
+                                if (chrome.runtime?.id) {
+                                    try {
+                                        chrome.runtime.sendMessage({
+                                            type: 'LLM_REQUEST',
+                                            data: {
+                                                timestamp: new Date().toISOString(),
+                                                provider: provider,
+                                                url: typeof url === 'string' ? url : url.toString(),
+                                                requestBody: bodyText.substring(0, 10000),
+                                                source: 'fetch_intercept',
+                                                method: 'POST'
+                                            }
+                                        }, (response) => {
+                                            if (chrome.runtime.lastError) {
+                                                // just swallow it or log lightly
+                                            }
+                                        });
+                                    } catch (e) {
+                                        // Context invalid
                                     }
-                                });
+                                }
                             } else {
                                 // console.log('Robost Clarity: LLM keywords found but provider not detected');
                             }
